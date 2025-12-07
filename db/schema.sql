@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS user_embeddings (
 );
 
 -- User ratings table (MovieLens compatible)
+-- Kept minimal for analytics/pipeline joins; raw imports may live in GCS
 CREATE TABLE IF NOT EXISTS user_ratings (
   user_id BIGINT NOT NULL,
   movie_id INTEGER NOT NULL REFERENCES movies(movie_id) ON DELETE CASCADE,
@@ -39,12 +40,13 @@ CREATE TABLE IF NOT EXISTS user_ratings (
 CREATE INDEX IF NOT EXISTS idx_user_ratings_user ON user_ratings(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_ratings_movie ON user_ratings(movie_id);
 
--- Hyperedges table to support graph-like relationships
+-- Hyperedges table to support graph-like relationships (e.g., co-watch, genre-affinity)
+-- Flexible JSONB payload for features/weights
 CREATE TABLE IF NOT EXISTS hyperedges (
   id BIGSERIAL PRIMARY KEY,
-  src_kind TEXT NOT NULL,
+  src_kind TEXT NOT NULL,    -- e.g., 'user' or 'movie'
   src_id BIGINT NOT NULL,
-  dst_kind TEXT NOT NULL,
+  dst_kind TEXT NOT NULL,    -- e.g., 'movie' or 'genre'
   dst_id BIGINT NOT NULL,
   weight REAL DEFAULT 1.0,
   payload JSONB,
@@ -52,4 +54,3 @@ CREATE TABLE IF NOT EXISTS hyperedges (
 );
 CREATE INDEX IF NOT EXISTS idx_hyperedges_src ON hyperedges(src_kind, src_id);
 CREATE INDEX IF NOT EXISTS idx_hyperedges_dst ON hyperedges(dst_kind, dst_id);
-

@@ -19,9 +19,11 @@ def _storage_options(path: str | Path) -> dict | None:
 
 def _list_ratings_parts(processed_dir: str) -> List[str]:
     pat = f"{processed_dir}/ratings_enriched-*.parquet"
+    # Try gcsfs glob first
     if processed_dir.startswith("gs://"):
         try:
             import gcsfs  # type: ignore
+
             fs = gcsfs.GCSFileSystem()
             matches = sorted(fs.glob(pat))
             if matches:
@@ -32,9 +34,11 @@ def _list_ratings_parts(processed_dir: str) -> List[str]:
         files = sorted(glob.glob(pat))
         if files:
             return files
+    # Fallback: sequential probe up to 200 parts
     out: List[str] = []
     for i in range(0, 200):
         p = f"{processed_dir}/ratings_enriched-{i:05d}.parquet"
+        # Defer existence check to reader; caller will catch FileNotFoundError
         out.append(p)
     return out
 
@@ -44,8 +48,10 @@ def build_user_profiles(
     out_path: str = os.getenv("GCS_PROFILES_PATH", "data/processed/user_profiles.parquet"),
     min_ratings: int = 10,
 ) -> None:
+    # Stream-friendly aggregation across enriched parts
     parts = _list_ratings_parts(processed_dir)
     if not parts:
+        # Fallback to single-file path
         single = f"{processed_dir}/ratings_enriched.parquet"
         parts = [single]
 
@@ -64,19 +70,23 @@ def build_user_profiles(
 
     for p in parts:
         df = pd.read_parquet(p, storage_options=_storage_options(p), columns=["user_id", "rating", "title"])
+        # counts
         for uid, n in df.groupby("user_id").size().items():
             counts[int(uid)] += int(n)
+        # positives
         pos = df[df["rating"] >= 4.0]
         if not pos.empty:
             agg = pos.groupby("user_id")["title"].apply(lambda s: list(s.dropna().astype(str))).to_dict()
             for uid, titles in agg.items():
                 _cap_append(pos_titles, int(uid), titles)
+        # negatives
         neg = df[df["rating"] <= 2.0]
         if not neg.empty:
             agg = neg.groupby("user_id")["title"].apply(lambda s: list(s.dropna().astype(str))).to_dict()
             for uid, titles in agg.items():
                 _cap_append(neg_titles, int(uid), titles)
 
+    # Build final DataFrame
     rows = []
     for uid, cnt in counts.items():
         if cnt < min_ratings:
@@ -96,4 +106,3 @@ def build_user_profiles(
 
 if __name__ == "__main__":
     build_user_profiles()
-

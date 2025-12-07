@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID=${PROJECT_ID:-$(gcloud config get-value core/project 2>/dev/null)}
-REGION=${REGION:-$(gcloud config get-value compute/region 2>/dev/null)}
+# Creates/updates Kaggle (and optionally TMDB) secrets.
+# Usage:
+#   KAGGLE_JSON=$HOME/.kaggle/kaggle.json ./scripts/setup_secrets.sh
+# Optional (not required with TMDB Kaggle dataset):
+#   TMDB_API_KEY=... ./scripts/setup_secrets.sh
 
 if [[ -n "${TMDB_API_KEY:-}" ]]; then
   if gcloud secrets describe tmdb-api-key >/dev/null 2>&1; then
@@ -31,4 +34,3 @@ if [[ -n "${KAGGLE_JSON:-}" ]]; then
 else
   echo "KAGGLE_JSON not set; skipping."
 fi
-

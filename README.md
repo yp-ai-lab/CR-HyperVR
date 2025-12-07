@@ -1,611 +1,361 @@
-<div align="center">
-
 # CR-HyperVR
 
-**Cloud Run Hypergraph-Vector Recommender**
+**Cloud Run Hypergraph-Vector Recommender** 
 
-*CPU-only FastAPI service using INT8 ONNX MiniLM, pgvector similarity, and hyperedge signals.*
+— CPU-only FastAPI service using INT8 ONNX MiniLM, pgvector similarity, and hyperedge signals.
 
----
+## What It Does
 
-</div>
+- Recommends films based on descriptions and user rating history
+- Creates compact embeddings of movies and user taste profiles
+- Searches for semantically similar content via vector similarity
+- Enhances results using hypergraph signals (co-watch patterns, shared genres)
+- Runs entirely on GCP Cloud Run with no GPU required
 
-CR-HyperVR is a fast, cloud-native recommendation service that learns your taste in films and finds your next favourite by matching descriptions, ratings, and the hidden connections between movies you love.
+## Key Benefits
 
-- Uses a compact text-embedding model finetuned on CPUs to create stable, low-dimensional representations of films and user preferences
-- Minimises cost and latency while allowing regular updates without specialist hardware
-- Retrieves likely candidates at query time by comparing embeddings, then refines ranking with a hypergraph that captures relations such as co-watching and shared genres
-- Combines CPU-based finetuning and hypergraph reasoning to improve robustness with sparse data, ease cold-start problems, and deliver more accurate, consistent results at scale
-
----
-
-## Quick Links
-
-| Resource | Details |
-|----------|---------|
-| **Project** | `agentics-foundation25lon-1809` |
-| **Region** | `europe-west2` |
-| **Default service** | `embedding-service` (public) |
-| **Graph service** | `infra-service` (public, graph features enabled) |
+- **Low latency & cost** — INT8-quantized ONNX model runs efficiently on CPU
+- **Cold-start friendly** — Hypergraph edges help recommend even with sparse user data
+- **Scalable** — Cloud Run auto-scales based on traffic
+- **Easy integration** — Simple JSON POST endpoints for any client or agent
 
 ---
 
-## Overview
+## Quick Start
 
-- **Purpose:** expose JSON FastAPIs for embedding, vector search, and graph-aided recommendation on Google Cloud Run.
-- **Architecture:** FastAPI + ONNXRuntime (INT8 MiniLM) + Cloud SQL (Postgres/pgvector). Optional graph and rerank toggles per service.
-- **Services:** `embedding-service` (default), `infra-service` (graph-focused; same image with graph features enabled).
-- **Region/Project (current deployment):** `agentics-foundation25lon-1809` in `europe-west2`.
-
----
-
-## Key Constraints
-
-> From PRD
-
-- CPU-only inference and fine-tuning; no GPU requirement.
-- Cloud Run deployment: stateless, auto-scaling containers (1-10 instances by default).
-- Latency targets: <10ms per embedding, <30ms end-to-end recommendation (P95).
-- Cost efficiency: design for low monthly cost at MVP scale.
-
----
-
-## Success Metrics
-
-> From PRD
-
-| Metric | Target |
-|--------|--------|
-| Embedding latency P95 | < 10 ms |
-| End-to-end recommendation P95 | < 30 ms |
-| Recommendation accuracy | > 0.65 NDCG@10 (offline) |
-| Cold start time | < 10 s |
-| Concurrency per instance | > 80 requests |
-
----
-
-## High-Level Architecture
-
-> Public summary
-
-- **Embedding service** (FastAPI on Cloud Run): hosts INT8 ONNX MiniLM, exposes JSON endpoints for embedding and search; optional reranker and graph boost.
-- **Vector store** (Cloud SQL + pgvector): stores 384-D embeddings, HNSW index, cached user vectors, hyperedges.
-- **Hypergraph signals:** co-watch edges and shared-genre links; combined with embedding scores.
-- **Fine-tuning pipeline:** CPU-based MNR/triplet training on TMDB + MovieLens; export to ONNX and quantize to INT8.
-
----
-
-## Repository Structure
-
-### What's in this repo (cloud-only)
-
-| Directory | Contents |
-|-----------|----------|
-| `app/` | FastAPI app, schemas, DB client, embedders, scoring |
-| `db/` | pgvector enablement and schema |
-| `training/` | CPU finetune, ONNX export, INT8 quantization (batch jobs or Cloud Shell) |
-| `pipeline/` | Data prep for Phase 2 (user profiles, triplets) used by finetuning and validation |
-| `scripts/` | Cloud-only helpers (provision, deploy to Cloud Run, apply schema on Cloud SQL, Cloud Run Jobs, GCS uploads, verification, activity log) |
-| Root | `Dockerfile`, `cloudbuild.yaml`, `Makefile` (GCP targets only) |
-
-### What's intentionally excluded
-
-Local/dev frameworks (BMAD), unit tests, local docker-compose, Dockerfile.dev, gitignore, or any local deployment guidance. All paths here assume use from GCP (Cloud Shell/Cloud Build/Cloud Run), not a developer laptop.
-
----
-
-## Quickstart
-
-**Public service address** (as of 2025-12-07):
+Live endpoints are public and ready to use:
 
 | Service | URL |
 |---------|-----|
-| Embeddings/API | https://embedding-service-5pgvctvdpq-nw.a.run.app |
-| Infra service | Fetch with: `gcloud run services describe infra-service --region=europe-west2 --format='value(status.url)'` |
+| Embedding API | `https://embedding-service-5pgvctvdpq-nw.a.run.app` |
+| Graph Service | `https://infra-service-5pgvctvdpq-nw.a.run.app` |
 
-**One-liner health check:**
+### Try It Now
 
+**Embed free text:**
 ```bash
-curl -s https://embedding-service-5pgvctvdpq-nw.a.run.app/healthz
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/text \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"neo-noir heist with witty banter"}'
 ```
 
-**Example: embed text**
+**Get graph-powered recommendations:**
+```bash
+curl -s -X POST \
+  https://infra-service-5pgvctvdpq-nw.a.run.app/graph/recommend \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"space opera adventure","top_k":5,"seed_top_k":15,"hops":2}'
+```
+
+### Full API Examples
+
+<details>
+<summary><strong>Batch embed texts</strong></summary>
 
 ```bash
-curl -s -X POST https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/text \
-  -H 'content-type: application/json' \
-  -d '{"text":"A sci-fi thriller with mind-bending twists."}'
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/batch \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "texts": [
+          "gritty detective thriller set in Boston",
+          "lighthearted family fantasy with magical creatures"
+        ]
+      }'
 ```
+</details>
+
+<details>
+<summary><strong>Embed a movie object</strong></summary>
+
+```bash
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/movie \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "title":"The Grand Budapest Hotel",
+        "genres":["Comedy","Drama"],
+        "description":"A whimsical concierge and lobby boy embark on capers across a pastel Europe."
+      }'
+```
+</details>
+
+<details>
+<summary><strong>Embed a user taste profile</strong></summary>
+
+```bash
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/user \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "liked_genres":["Sci-Fi","Adventure"],
+        "liked_movies":["Star Wars","Guardians of the Galaxy"],
+        "disliked_genres":["Horror"]
+      }'
+```
+</details>
+
+<details>
+<summary><strong>Search similar movies (pgvector)</strong></summary>
+
+```bash
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/search/similar \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "text":"grounded space survival drama",
+        "top_k": 10
+      }'
+```
+</details>
+
+<details>
+<summary><strong>Recommend for a user ID</strong></summary>
+
+```bash
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/search/recommend \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "user_id": 123,
+        "top_k": 10,
+        "exclude_movie_ids": [1,2,3]
+      }'
+```
+</details>
+
+<details>
+<summary><strong>Graph recommendations with weight tuning</strong></summary>
+
+```bash
+curl -s -X POST \
+  https://infra-service-5pgvctvdpq-nw.a.run.app/graph/recommend \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "query":"A feel-good romantic comedy set in New York City with witty banter and heartfelt moments.",
+        "top_k": 5,
+        "seed_top_k": 15,
+        "hops": 2,
+        "embed_weight": 1.0,
+        "cowatch_weight": 0.5,
+        "genre_weight": 0.25
+      }'
+```
+</details>
 
 ---
 
-## Comprehensive Quickstart (Cloud Shell)
+## Architecture
 
-### 1. Set environment
-
-```bash
-export PROJECT_ID=agentics-foundation25lon-1809
-export REGION=europe-west2
-```
-
-### 2. Verify project, APIs, service accounts, buckets, SQL, secrets
-
-```bash
-make gcp-verify    # shell-based checks
-make gcp-verify-py # python-based checks
-```
-
-### 3. Provision core infrastructure (idempotent)
-
-```bash
-bash scripts/provision_core.sh \
-  PROJECT_ID=$PROJECT_ID REGION=$REGION \
-  SQL_INSTANCE=embeddings-sql-$REGION DB_NAME=movies DB_USER=app_user
-```
-
-### 4. Upload datasets and base model to GCS
-
-> Optional now; recommended before training
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION \
-DATA_BUCKET=gs://agentics-foundation25lon-1809-europe-west2-datasets-20251207 \
-MODEL_BUCKET=gs://agentics-foundation25lon-1809-europe-west2-models-20251207 \
-bash scripts/upload_gcs_assets.sh
-```
-
-### 5. Build and push container image to Artifact Registry
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-build
-```
-
-### 6. Enable pgvector and apply database schema on Cloud SQL
-
-```bash
-SQL_INSTANCE=embeddings-sql-europe-west2 DB_NAME=movies make db-apply-cloudsql
-```
-
-### 7. Deploy embedding-service to Cloud Run (public)
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy
-SERVICE_URL=$(gcloud run services describe embedding-service --region=$REGION --format='value(status.url)')
-```
-
-### 8. Smoke test
-
-```bash
-curl -s "$SERVICE_URL/healthz"
-curl -s -X POST "$SERVICE_URL/embed/text" -H 'content-type: application/json' \
-  -d '{"text":"A cozy mystery with dry humor."}' | jq '.dimension,.model' || true
-```
-
-### 9. Deploy infra-service (optional)
-
-> Graph features on by default
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy-infra
-INFRA_URL=$(gcloud run services describe infra-service --region=$REGION --format='value(status.url)')
-curl -s -X POST "$INFRA_URL/graph/recommend" -H 'content-type: application/json' \
-  -d '{"query":"mind-bending sci-fi thriller","top_k":10,"seed_top_k":50,"hops":2}' | jq '.items[0]'
-```
-
-### 10. Run Phase-2 pipeline as Cloud Run Job (optional)
-
-```bash
-# Deploy jobs with environment prefixes; edit DATA/PROCESSED/TRIPLETS paths as needed
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-jobs-deploy
-gcloud run jobs run pipeline-phase2 --region=$REGION --wait
-```
-
-### 11. Observability and debugging
-
-```bash
-curl -s "$SERVICE_URL/metrics" | head -n 20
-curl -s "$SERVICE_URL/debug/db_counts"
-curl -s "$SERVICE_URL/debug/sample_movie"
-```
-
-### 12. Configuration toggles (env vars)
-
-| Variable | Description |
-|----------|-------------|
-| `MODEL_GCS_URI` | Pull ONNX from GCS at startup; else local cached model is used |
-| `EMBEDDING_BACKEND` | `auto\|onnx\|st\|hash` to control embedding path |
-| `USE_GRAPH_SCORER` | `true\|false` |
-| `GRAPH_SCORE_WEIGHT` | Blend graph weights |
-| `USE_RERANKER` | `true\|false` to enable the lightweight title-token reranker |
-
----
-
-## API Summary
-
-> JSON FastAPIs
-
-| Method | Endpoint | Response |
-|--------|----------|----------|
-| `GET` | `/healthz` | `{ status: "ok" }` |
-| `GET` | `/ready` | Lightweight readiness check |
-| `GET` | `/metrics` | Prometheus-style counters |
-| `POST` | `/embed/text` | `{ embedding: float[], dimension: 384, model: "movie-minilm-v1" }` |
-| `POST` | `/embed/batch` | Batch embeddings |
-| `POST` | `/embed/movie` | Embed title+genres+overview |
-| `POST` | `/embed/user` | Embed short user preference summary |
-| `POST` | `/search/similar` | Vector search in pgvector; optional graph boost and optional rerank |
-| `POST` | `/search/recommend` | User-centric recommendations |
-| `POST` | `/graph/recommend` | Seed via vector; expand via hyperedges (co-watch, shared-genre); return ranked items with signal sources |
-
----
-
-## Example Requests
-
-```bash
-SERVICE=https://embedding-service-5pgvctvdpq-nw.a.run.app
-
-# Embed text
-curl -s -X POST "$SERVICE/embed/text" -H 'content-type: application/json' \
-  -d '{"text":"A cozy mystery with dry humor."}' | jq .dimension
-
-# Search similar
-curl -s -X POST "$SERVICE/search/similar" -H 'content-type: application/json' \
-  -d '{"text":"heist thriller in Las Vegas","top_k":10}' | jq '.items[0]'
-
-# Graph-focused endpoint (works from either service; `infra-service` enables graph by default)
-INFRA_URL=$(gcloud run services describe infra-service --region=europe-west2 --format='value(status.url)' || true)
-curl -s -X POST "$INFRA_URL/graph/recommend" -H 'content-type: application/json' \
-  -d '{"query":"mind-bending sci-fi thriller","top_k":10,"seed_top_k":50,"hops":2}' | jq '.items[0]'
-```
-
----
-
-## System Diagrams
-
-### Architecture Overview
+Fully managed GCP infrastructure with automatic scaling and pay-per-use billing.
 
 ```mermaid
 flowchart LR
-  subgraph Client
-    A[User/Agent]
-  end
-  subgraph Cloud Run
-    S[FastAPI
-      - /embed/*
-      - /search/similar
-      - /graph/recommend]
-  end
-  subgraph Cloud SQL
-    P[(Postgres + pgvector
-      movies, movie_embeddings,
-      user_ratings, hyperedges)]
-  end
-  subgraph GCS
-    B1[(data: TMDB/MovieLens)]
-    B2[(models: MiniLM base + finetuned ONNX)]
-    B3[(processed: profiles, triplets, edges)]
-  end
-
-  A -->|JSON| S
-  S -->|vector search| P
-  S -->|read embeddings| P
-  S -->|hypergraph expand| P
-  S -->|lazy load model| B2
-  Jobs[[Cloud Run Jobs]] -->|write| B3
-  Jobs -->|seed schema| P
-  B1 -->|pipeline| Jobs
+  A[Client / Agent] -->|JSON POST| B((Cloud Run: embedding-service))
+  A -->|JSON POST| C((Cloud Run: infra-service))
+  B -->|SQL (pgvector)| D[(Cloud SQL Postgres 15)]
+  C -->|SQL (pgvector + hyperedges)| D
+  E[(GCS: datasets/models)] -->|MODEL_GCS_URI| B
+  E -->|Phase 2 outputs| F{{Cloud Run Jobs}}
+  F -->|validate_hyperedges| D
 ```
 
-### Graph Reasoning (Scoring Signals)
+### Infrastructure Components
+
+| Component | Purpose |
+|-----------|---------|
+| **Cloud Run Services** | Auto-scaling API endpoints for embedding and recommendations |
+| **Cloud SQL (PostgreSQL 15)** | Stores movie embeddings and hyperedges with pgvector |
+| **Cloud Storage** | Hosts datasets, trained models, and pipeline outputs |
+| **Cloud Run Jobs** | Executes data pipelines and model training |
+| **Secret Manager** | Secures database credentials |
+
+### How It Works
+
+1. **Query arrives** → Text is embedded using INT8 ONNX MiniLM
+2. **Vector search** → pgvector finds semantically similar movies
+3. **Graph expansion** → Hyperedges add co-watch and genre neighbors
+4. **Score fusion** → Weighted combination produces final ranking
 
 ```mermaid
-flowchart TB
-  Q[Query embedding]
-  E[Embed candidates via pgvector]
-  C[Co-watch edges]
-  G[Shared-genre edges]
-  N[Normalize each signal]
-  W[Weighted sum]
-  R[Rank and return with sources]
-
-  Q --> E --> N
-  C --> N
-  G --> N
-  N --> W --> R
+flowchart TD
+  Q[Query text] --> E[Embed vector]
+  E --> S[Seed candidates via pgvector]
+  S --> COW[Co-watch neighbors]
+  S --> GEN[Shared-genre neighbors]
+  COW --> M[Normalize + weighted sum]
+  GEN --> M
+  E -->|as scores| M
+  M --> R[Top-K ranked list]
 ```
 
 ---
 
-## GCP-Only Deployment
+## API Reference
 
-### Assumptions
+### Embedding Endpoints
 
-Run from Google Cloud Shell with project set. No local `gcloud auth` instructions are required or used.
+| Endpoint | Description | Response |
+|----------|-------------|----------|
+| `POST /embed/text` | Embed free text | `{ embedding, dimension, model }` |
+| `POST /embed/batch` | Embed multiple texts | Array of embeddings |
+| `POST /embed/movie` | Embed from title + genres + description | Embedding object |
+| `POST /embed/user` | Embed user taste profile | Embedding object |
 
-### Current Deployment Details
+### Search Endpoints
 
-| Resource | Value |
-|----------|-------|
-| Project | `agentics-foundation25lon-1809` |
-| Region | `europe-west2` |
-| Artifact Registry repo | `embedding-service` (Docker) in `europe-west2` |
-| Cloud SQL 15 instance | `embeddings-sql-europe-west2` (connection name printed by scripts) |
-| Secret Manager | `database-url` (Cloud SQL connector DSN) |
-| Service accounts | `embedding-service@agentics-foundation25lon-1809.iam.gserviceaccount.com`<br>`embedding-jobs@agentics-foundation25lon-1809.iam.gserviceaccount.com` |
+| Endpoint | Description |
+|----------|-------------|
+| `POST /search/similar` | Vector search over movie embeddings |
+| `POST /search/recommend` | Recommendations from user profile |
+| `POST /graph/recommend` | Graph-enhanced recommendations |
 
-### Provision Core Infra (idempotent)
+### Health & Metrics
 
+| Endpoint | Description |
+|----------|-------------|
+| `GET /healthz` | Health check |
+| `GET /ready` | Readiness probe |
+| `GET /metrics` | Service metrics |
+
+**Export OpenAPI spec:**
 ```bash
-# Cloud Shell
-export PROJECT_ID=agentics-foundation25lon-1809
-export REGION=europe-west2
-bash scripts/provision_core.sh
-```
-
-### Build and Deploy
-
-```bash
-# Build and push image to Artifact Registry
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-build
-
-# Apply pgvector + schema on Cloud SQL
-SQL_INSTANCE=embeddings-sql-europe-west2 DB_NAME=movies make db-apply-cloudsql
-
-# Deploy embedding-service (public)
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy
-
-# Optional: deploy infra-service with graph toggled on
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy-infra
+make export-openapi
 ```
 
 ---
 
-## Using the Infra-Service Endpoint
+## Data Pipeline
 
-**Purpose:** expose `/graph/recommend` tuned for multi-signal ranking (embed + co-watch + shared-genre). Same image, separate service.
+### Data Sources
 
-**Fetch URL and call:**
+- **TMDB** — Movie descriptions from Kaggle dataset `tmdb-movies-dataset-2023-930k-movies`
+- **MovieLens 25M** — User ratings for collaborative signals
+
+### Embedding Model
+
+- **MiniLM-L6-v2** — Base embedding model from sentence-transformers
+
+### Pipeline Phases
+
+```mermaid
+flowchart TD
+  A[Phase 2 Outputs\n movies_with_descriptions.parquet\n user_profiles.parquet\n triplets/*.parquet] --> B[train_finetune.py\n ST MiniLM-L6-v2 → movie-minilm-v1]
+  B --> C[onnx_export.py → model.onnx]
+  C --> D[quantize_int8.py → model-int8.onnx]
+  D --> E[(GCS models bucket)]
+  E --> F((Cloud Run \n MODEL_GCS_URI))
+```
+
+| Phase | Script | Output |
+|-------|--------|--------|
+| **Join** | `scripts/join_datasets.py` | Merged TMDB + MovieLens Parquet |
+| **Train** | `training/train_finetune.py` | Fine-tuned MiniLM model |
+| **Export** | `training/onnx_export.py` | `model.onnx` |
+| **Quantize** | `training/quantize_int8.py` | `model-int8.onnx` |
+| **Validate** | `scripts/validate_hyperedges.py` | DB edge verification |
+
+---
+
+## GCP Deployment
+
+### Prerequisites
+
+Enable these GCP APIs:
+- Cloud Run
+- Cloud Build
+- Artifact Registry
+- Cloud SQL Admin
+- Secret Manager
+- VPC Access
+- Cloud Storage
+
+### Provision Infrastructure
 
 ```bash
-INFRA_URL=$(gcloud run services describe infra-service --region=europe-west2 --format='value(status.url)')
-curl -s -X POST "$INFRA_URL/graph/recommend" -H 'content-type: application/json' \
-  -d '{
-        "query":"crime drama set in Boston",
-        "top_k":10, "seed_top_k":60, "hops":2,
-        "embed_weight":0.7, "cowatch_weight":0.2, "genre_weight":0.1
-      }'
+PROJECT_ID=agentics-foundation25lon-1809 \
+REGION=europe-west2 \
+AR_REPO=embedding-service \
+BUCKET_NAME=${PROJECT_ID}-${REGION}-embeddings \
+SQL_INSTANCE=embeddings-sql-${REGION} \
+DB_NAME=movies DB_USER=app_user \
+make gcp-provision
+```
+
+### Configure Secrets
+
+```bash
+make gcp-secrets
+```
+
+### Deploy Services
+
+**Embedding service:**
+```bash
+REGION=europe-west2 make gcp-build
+
+PROJECT_ID=agentics-foundation25lon-1809 REGION=europe-west2 \
+  SERVICE_NAME=embedding-service \
+  MODEL_GCS_URI=gs://agentics-foundation25lon-1809-europe-west2-models-20251207/models/movie-minilm-v1/model-int8.onnx \
+  make gcp-deploy
+```
+
+**Infra service (graph recommendations):**
+```bash
+PROJECT_ID=agentics-foundation25lon-1809 REGION=europe-west2 \
+  SERVICE_NAME=infra-service make gcp-deploy-infra
+```
+
+### Deploy Pipeline Jobs
+
+```bash
+# Deploy jobs
+PROJECT_ID=agentics-foundation25lon-1809 REGION=europe-west2 \
+  AR_REPO=embedding-service make gcp-jobs-deploy
+
+# Run Phase 2 (embeddings + hyperedges)
+PROJECT_ID=agentics-foundation25lon-1809 REGION=europe-west2 make gcp-job-run-phase2
+
+# Run Phase 3 (fine-tuning → ONNX → INT8)
+PROJECT_ID=agentics-foundation25lon-1809 REGION=europe-west2 make gcp-job-run-phase3
 ```
 
 ---
 
-## Agent Playbook
-
-### Deploy and Test Services
-
-**Pre-set context (Cloud Shell):**
-
-```bash
-export PROJECT_ID=agentics-foundation25lon-1809
-export REGION=europe-west2
-```
-
-**Build and push image:**
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-build
-```
-
-**Ensure DB schema exists (idempotent):**
-
-```bash
-SQL_INSTANCE=embeddings-sql-europe-west2 DB_NAME=movies make db-apply-cloudsql
-```
-
-**Deploy embeddings-service and fetch URL:**
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy
-SERVICE_URL=$(gcloud run services describe embedding-service --region=$REGION --format='value(status.url)')
-
-# Health check
-curl -s "$SERVICE_URL/healthz"
-
-# Embed example
-curl -s -X POST "$SERVICE_URL/embed/text" -H 'content-type: application/json' \
-  -d '{"text":"A cozy mystery with dry humor."}'
-```
-
-**Deploy infra-service and fetch URL:**
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy-infra
-INFRA_URL=$(gcloud run services describe infra-service --region=$REGION --format='value(status.url)')
-
-# Graph example
-curl -s -X POST "$INFRA_URL/graph/recommend" -H 'content-type: application/json' \
-  -d '{"query":"mind-bending sci-fi thriller","top_k":10,"seed_top_k":50,"hops":2}'
-```
-
-**Notes for agents:**
-
-- All scripts/targets are idempotent and safe to rerun.
-- If a secret or SA is missing, run `scripts/provision_core.sh` first.
-- Prefer `make gcp-verify` before deploying to confirm APIs, SAs, buckets, SQL, and secrets.
-
----
-
-## Agent One-Liners (Cheat Sheet)
-
-**Build, Deploy `embedding-service`, Smoke test:**
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-build && make gcp-deploy && \
-  gcloud run services describe embedding-service --region=$REGION --format='value(status.url)'
-
-curl -s "$SERVICE_URL/healthz"
-```
-
-**Deploy `infra-service` and call graph endpoint:**
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION make gcp-deploy-infra && \
-  INFRA_URL=$(gcloud run services describe infra-service --region=$REGION --format='value(status.url)')
-
-curl -s -X POST "$INFRA_URL/graph/recommend" -H 'content-type: application/json' \
-  -d '{"query":"mind-bending sci-fi thriller","top_k":10,"seed_top_k":50,"hops":2}'
-```
-
----
-
-## Data Sourcing
-
-### Kaggle/TMDB
-
-- **MovieLens 25M** ratings and links (Kaggle). Obtain API credentials and download to local workspace or upload directly to your project GCS bucket.
-- **TMDB movies CSV** (Kaggle or TMDB dump) with `title`, `overview`, `genres`, `status`, `release_date`.
-
-### Recommended GCS layout
-
-> Already used in this project
-
-```
-gs://agentics-foundation25lon-1809-europe-west2-datasets-20251207/data/movielens/ml-25m/...
-gs://agentics-foundation25lon-1809-europe-west2-datasets-20251207/data/tmdb/TMDB_movie_dataset_v11.csv
-```
-
-### Upload helper with verification
-
-```bash
-PROJECT_ID=$PROJECT_ID REGION=$REGION \
-DATA_BUCKET=gs://agentics-foundation25lon-1809-europe-west2-datasets-20251207 \
-MODEL_BUCKET=gs://agentics-foundation25lon-1809-europe-west2-models-20251207 \
-bash scripts/upload_gcs_assets.sh
-```
-
----
-
-## Model Sourcing
-
-### MiniLM and Formats
-
-- **Base model:** `sentence-transformers/all-MiniLM-L6-v2` (downloaded inside the Docker build and cached to `models/base-minilm`).
-- **Fine-tuned model:** produced by Phase 3 training; export to ONNX then quantize to INT8.
-- **GCS model paths:** expected by the service if `MODEL_GCS_URI` is set, else local `models/movie-minilm-v1/`.
-
----
-
-## Finetuning Pipeline
-
-### CPU-only to ONNX to INT8
-
-**Phase 2 (data joins):** build user profiles and triplets in GCS
-
-```bash
-python pipeline/user_profiles.py
-python pipeline/triplets.py
-```
-
-**Phase 3 (finetune):** train on CPU; hyperparameters kept small for reproducibility
-
-```bash
-python training/train_finetune.py
-```
-
-**Export to ONNX:**
-
-```bash
-python training/onnx_export.py
-```
-
-**Quantize to INT8** (per-tensor, dynamic):
-
-```bash
-python training/quantize_int8.py
-```
-
-**Upload artifacts** to `gs://.../models/movie-minilm-v1/` and set `MODEL_GCS_URI` or `GCS_MODELS_BUCKET` when deploying so the service lazily pulls the ONNX file on first request.
-
----
-
-## Edge Validation Mechanisms
-
-- **Coverage check** of triplets vs database contents: `scripts/validate_triplets_coverage.py` prints counts of referenced movies and embeddings; exit non-zero on gaps.
-
-- **Hyperedge build** is two-phase and bounded to keep memory stable:
-  1. Generate per-part co-watch edges, persist to `hyperedges_parts/`.
-  2. Aggregate top-K per source, add genre edges, emit `hyperedges.parquet`, then optionally insert to DB in chunks.
-
-- **API exposure** of validation signals:
-  - `/debug/db_counts` returns movies/embeddings counts.
-  - `/debug/sample_movie` returns a sample movie.
-
----
-
-## Configuration Options
+## Configuration
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `ENVIRONMENT` | Default `prod` in Cloud Run |
-| `DATABASE_URL` | Supplied via Secret Manager secret `database-url` (Cloud SQL connector DSN) |
-| `MODEL_GCS_URI` or `GCS_MODELS_BUCKET` | Pull ONNX artifacts from GCS; else local `BASE_MODEL_DIR` cache is used for fallback ST embedding |
-| `EMBEDDING_BACKEND` | `auto\|onnx\|st\|hash` (default `auto`) |
-| `USE_GRAPH_SCORER` | `true\|false` |
-| `GRAPH_SCORE_WEIGHT` | Blend weight |
-| `USE_RERANKER` | `true\|false` |
-| `ALLOWED_ORIGINS` | CORS origins via `allowed_origins` list in settings if needed |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DATABASE_URL` | PostgreSQL connection (via Secret Manager) | — |
+| `MODEL_GCS_URI` | GCS path to ONNX model | — |
+| `EMBEDDING_BACKEND` | Backend selection | `auto` |
+| `USE_GRAPH_SCORER` | Enable graph scoring | `false` |
+| `USE_RERANKER` | Enable reranking | `false` |
+| `VECTOR_DIM` | Embedding dimension | `384` |
+| `LOG_LEVEL` | Logging verbosity | `INFO` |
+| `ALLOWED_ORIGINS` | CORS origins (comma-separated) | — |
 
-### Service Names/Links
+### Embedding Backends
 
-| Resource | Name |
-|----------|------|
-| Artifact Registry repo | `embedding-service` |
-| Cloud Run services | `embedding-service`, `infra-service` |
-
----
-
-## Security and Access
-
-- Services are deployed `--allow-unauthenticated` for public read-only inference. Database remains private behind Cloud SQL connector.
-- Secrets remain in Secret Manager; no secrets are committed to this repo.
+| Value | Description |
+|-------|-------------|
+| `auto` | Auto-detect best available |
+| `onnx` | ONNX Runtime (recommended) |
+| `st` | Sentence Transformers |
+| `hash` | Hash-based fallback |
 
 ---
 
-## Runbooks
+## Roadmap
 
-> Cloud-only
-
-| Task | Command |
-|------|---------|
-| Verify GCP setup | `make gcp-verify` (lists enabled APIs, repos, SAs, buckets, SQL, secrets) |
-| Log GCP actions for compliance | `scripts/gcp_log.py --run "gcloud ..." --purpose "Deploy CR"` appends to `gcp-activity-log.md` |
-| Cloud Run Jobs deploy helpers | `make gcp-jobs-deploy` and `make gcp-job-run-<jobname>` |
-
----
-
-## TODO
-
-> Next features; includes pipeline-phase3
-
-- [ ] **Pipeline-phase3:** integrate finetuning + ONNX export + INT8 quantization as Cloud Run Jobs with artifact upload to GCS and automatic Canary deploy.
-- [ ] Add HNSW index build validations and latency SLO probes as a Cloud Run Job.
-- [ ] Add schema migration job that is idempotent and linked to image tag.
-- [ ] Replace ST fallback with pure-ONNX encode path in service for lighter runtime footprint.
-- [ ] Extend hypergraph with implicit tags (e.g., crew/cast from TMDB) and time-decay.
-- [ ] Add per-tenant CORS and quota options controlled by env vars.
+- [ ] Curriculum sampling with temperature-controlled hard negatives
+- [ ] Weak supervision from genre and co-watch edges during training
+- [ ] Portable ONNX with shared tokenizer
+- [ ] TinyBERT/MiniLM cross-encoder reranker
+- [ ] Nightly retraining with drift detection
+- [ ] Canary deployments with automated guardrails
 
 ---
-
-## License and Credits
-
-- **Datasets:** MovieLens (GroupLens) and TMDB subject to their licenses and API/data terms.
-- **Base model:** `sentence-transformers/all-MiniLM-L6-v2` by the Sentence-Transformers authors.
-
----
-
-<div align="center">
-
-*Built for scale on Google Cloud Run*
-
-</div>

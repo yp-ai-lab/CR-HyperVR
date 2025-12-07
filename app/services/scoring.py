@@ -8,6 +8,10 @@ def combine_scores(
     genre_weights: Dict[int, float],
     weight: float = 0.05,
 ) -> Dict[int, float]:
+    """
+    Combine cosine similarity scores with simple graph-derived weights.
+    For now: new = base + weight * genre_weight(movie_id).
+    """
     out: Dict[int, float] = {}
     for mid, s in base_scores.items():
         g = genre_weights.get(mid, 0.0)

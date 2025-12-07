@@ -1,51 +1,47 @@
 PY ?= python3
 
-.PHONY: install gcp-verify gcp-verify-py gcp-build gcp-deploy gcp-deploy-infra db-apply-cloudsql gcp-jobs-deploy gcp-secrets pipeline-phase2 upload-gcs-assets gcp-log gcp-logged-% build-hyperedges validate-hyperedges
+.PHONY: gcp-provision gcp-secrets gcp-verify gcp-build gcp-deploy gcp-deploy-infra gcp-jobs-deploy gcp-job-run-phase2 gcp-job-run-phase3 db-apply-cloudsql export-openapi
 
-install:
-	$(PY) -m pip install -r requirements.txt
+# GCP: Core provisioning (Artifact Registry, bucket, Cloud SQL, SAs, secret)
+gcp-provision:
+	bash scripts/provision_core.sh
 
-gcp-verify:
-	bash scripts/gcp_verify.sh
-
-gcp-verify-py:
-	$(PY) scripts/verify_gcp_access.py
-
-gcp-build:
-	gcloud builds submit --region=$${REGION:-europe-west2} --tag $${REGION:-europe-west2}-docker.pkg.dev/$${PROJECT_ID}/$${AR_REPO:-embedding-service}/api:latest .
-
-gcp-deploy:
-	bash scripts/deploy_cloud_run.sh
-
-gcp-deploy-infra:
-	bash scripts/deploy_graph_service.sh
-
-db-apply-cloudsql:
-	bash scripts/db_apply_cloudsql.sh
-
-gcp-jobs-deploy:
-	bash scripts/deploy_jobs.sh
-
+# GCP: Create/update Secret Manager entries (e.g., DATABASE_URL, Kaggle creds)
 gcp-secrets:
 	bash scripts/setup_secrets.sh
 
-pipeline-phase2:
-	PYTHONPATH=. $(PY) scripts/run_pipeline_phase2.py
+# GCP: Sanity checks (services, AR repo, Cloud SQL, SAs)
+gcp-verify:
+	bash scripts/gcp_verify.sh
 
-upload-gcs-assets:
-	bash scripts/upload_gcs_assets.sh
+# GCP: Build container in Cloud Build and push to Artifact Registry
+gcp-build:
+	gcloud builds submit --region=$${REGION:-europe-west2} --config=cloudbuild.yaml --substitutions=_REGION=$${REGION:-europe-west2}
 
-gcp-log:
-	@[ -z "$(PURPOSE)" ] && echo "PURPOSE is required" && exit 1 || true
-	@[ -z "$(CMD)" ] && echo "CMD is required" && exit 1 || true
-	$(PY) scripts/gcp_log.py --executor "$${EXECUTOR:-Make}" --purpose "$(PURPOSE)" --run "$(CMD)"
+# GCP: Deploy primary API service (embedding-service)
+gcp-deploy:
+	bash scripts/deploy_cloud_run.sh
 
-gcp-logged-%:
-	$(PY) scripts/gcp_log.py --executor "Make" --purpose "$${PURPOSE:-make $*}" --run "$(MAKE) $*"
+# GCP: Deploy infra-service (graph‑focused, POST‑only)
+gcp-deploy-infra:
+	bash scripts/deploy_graph_service.sh
 
-build-hyperedges:
-	PYTHONPATH=. $(PY) scripts/build_hyperedges.py
+# GCP: Deploy Cloud Run Jobs for data pipelines and validation
+gcp-jobs-deploy:
+	bash scripts/deploy_jobs.sh
 
-validate-hyperedges:
-	PYTHONPATH=. $(PY) scripts/validate_hyperedges.py
+# Run Phase 2 (join → profiles → hyperedges + validation) as a Cloud Run Job
+gcp-job-run-phase2:
+	PROJECT_ID=$${PROJECT_ID} REGION=$${REGION:-europe-west2} bash -lc 'gcloud beta run jobs execute pipeline-phase2 --region $$REGION'
 
+# Run Phase 3 (fine‑tune → ONNX → INT8) as a Cloud Run Job
+gcp-job-run-phase3:
+	PROJECT_ID=$${PROJECT_ID} REGION=$${REGION:-europe-west2} bash -lc 'gcloud beta run jobs execute pipeline-phase3 --region $$REGION'
+
+# Apply schema + pgvector to Cloud SQL (uses Cloud SQL connect)
+db-apply-cloudsql:
+	bash scripts/db_apply_cloudsql.sh
+
+# Export OpenAPI JSON (writes openapi.json in repo root)
+export-openapi:
+	$(PY) scripts/export_openapi.py

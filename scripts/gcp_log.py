@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -60,7 +61,9 @@ def run_and_log(args: argparse.Namespace) -> int:
     executor = args.executor or os.getenv("GCP_LOG_EXECUTOR", "Agent")
     purpose = args.purpose or "Unspecified"
     if args.run:
+        # Execute the command in a login shell for compatibility
         cmd = args.run
+        # Show a normalized form in the log for readability
         display_cmd = cmd
         try:
             proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -92,6 +95,7 @@ def run_and_log(args: argparse.Namespace) -> int:
             )
             return 1
     else:
+        # Append-only mode (no command execution)
         result = args.result or "success"
         commands = args.commands or "n/a"
         details = args.details or ""
@@ -115,6 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--run", help="Shell command to execute and log result")
     p.add_argument("--executor", help="Executor label (User/Agent/CI)")
     p.add_argument("--purpose", help="Purpose of the action")
+    # Append-only fields
     p.add_argument("--commands", help="Commands text when not using --run")
     p.add_argument("--result", choices=["success", "error"], help="Result when not using --run")
     p.add_argument("--details", help="Additional details text for append-only mode")

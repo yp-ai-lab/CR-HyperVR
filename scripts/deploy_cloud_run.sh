@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Default to repo-local Cloud SDK config to avoid $HOME perms issues
 export CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-$(pwd)/.gcloud}"
 mkdir -p "$CLOUDSDK_CONFIG"
 
@@ -24,4 +25,3 @@ gcloud run deploy "$SERVICE_NAME" \
   --set-secrets DATABASE_URL=database-url:latest \
   --set-env-vars ENVIRONMENT=prod,BASE_MODEL_DIR=models/base-minilm${MODEL_GCS_URI:+,MODEL_GCS_URI=${MODEL_GCS_URI}} \
   ${EXTRA_ARGS:-}
-

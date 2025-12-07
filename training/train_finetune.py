@@ -28,6 +28,7 @@ def _read_parquet(path: str):
 def build_examples(processed_dir: str) -> Iterable[InputExample]:
     trips_path = f"{processed_dir}/triplets/triplets_10k.parquet"
     users_path = f"{processed_dir}/user_profiles.parquet"
+    # Prefer movies_with_descriptions; allow legacy movies_enriched name
     movies_primary = f"{processed_dir}/movies_with_descriptions.parquet"
     movies_fallback = f"{processed_dir}/movies_enriched.parquet"
 
@@ -70,11 +71,13 @@ def main():
         raise RuntimeError("No training examples found. Ensure Phase 2 outputs exist.")
 
     if cfg.use_triplet_loss:
+        # Use explicit triplet loss with anchor-pos-neg
         from sentence_transformers.losses import TripletLoss
 
         train_dataloader = DataLoader(examples, shuffle=True, batch_size=cfg.batch_size)
         train_loss = TripletLoss(model)
     else:
+        # Use MNR: Only anchor and positive are used; implicit in-batch negatives apply.
         mnr_examples = [InputExample(texts=e.texts[:2]) for e in examples]
         train_dataloader = DataLoader(mnr_examples, shuffle=True, batch_size=cfg.batch_size)
         train_loss = losses.MultipleNegativesRankingLoss(model)
@@ -91,4 +94,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

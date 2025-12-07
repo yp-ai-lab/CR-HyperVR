@@ -56,7 +56,12 @@ class UserEmbedRequest(BaseModel):
     disliked_genres: List[str] = Field(default_factory=list)
 
 
+# --- Hypergraph query/recommendation ---
 class GraphRecommendRequest(BaseModel):
+    """Free‑text query that seeds vector search, then expands via hypergraph.
+
+    Fields allow light tuning without overcomplicating the interface.
+    """
     query: str = Field(..., description="User query to embed and seed the graph search")
     top_k: int = Field(10, description="Number of recommendations to return")
     seed_top_k: int = Field(20, description="Seed candidates from vector search")
@@ -72,4 +77,3 @@ class GraphRecommendItem(SimilarItem):
 
 class GraphRecommendResponse(BaseModel):
     items: List[GraphRecommendItem]
-

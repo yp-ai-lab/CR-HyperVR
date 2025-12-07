@@ -44,6 +44,7 @@ def main():
         usecols=[c for c in ["imdb_id", "status", "overview", "title", "genres", "vote_average", "release_date"] if True],
     )
     tmdb = tmdb[tmdb["status"] == "Released"]
+    # Keep modest descriptions locally; production datasets will far exceed this
     tmdb = tmdb[tmdb["overview"].notna() & (tmdb["overview"].astype(str).str.len() > 10)]
     tmdb["imdb_id_clean"] = tmdb["imdb_id"].astype(str).str.replace("tt", "", regex=False)
     tmdb["imdb_id_clean"] = pd.to_numeric(tmdb["imdb_id_clean"], errors="coerce")
@@ -66,6 +67,7 @@ def main():
     keep_cols = ["movieId", "title", "overview", "genres", "vote_average", "release_date"]
     movies_keep = movies_joined[[c for c in keep_cols if c in movies_joined.columns]].copy()
 
+    # Write movies metadata
     if isinstance(out_dir, str) and str(out_dir).startswith("gs://"):
         movies_keep.to_parquet(f"{out_dir}/movies_with_descriptions.parquet", storage_options=_storage_options(out_dir))
     else:
@@ -73,6 +75,7 @@ def main():
         Path(out_dir, "triplets").mkdir(exist_ok=True)
         movies_keep.to_parquet(Path(out_dir) / "movies_with_descriptions.parquet")
 
+    # Stream ratings in chunks to avoid OOM; write partitioned enriched chunks
     print("Streaming ratings -> enriched parquet parts (chunked)...")
     part = 0
     chunksize = int(os.getenv("JOIN_RATINGS_CHUNKSIZE", "1000000"))
@@ -103,4 +106,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

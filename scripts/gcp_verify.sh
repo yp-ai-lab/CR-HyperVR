@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Default to repo-local Cloud SDK config to avoid $HOME perms issues
 export CLOUDSDK_CONFIG="${CLOUDSDK_CONFIG:-$(pwd)/.gcloud}"
 mkdir -p "$CLOUDSDK_CONFIG"
 
@@ -22,6 +23,7 @@ echo "== Service Accounts =="
 gcloud iam service-accounts list --format='table(displayName,email)'
 
 echo "== Bucket exists? =="
+# Default to new datasets bucket with 20251207 suffix unless BUCKET_NAME provided
 BUCKET_NAME=${BUCKET_NAME:-${PROJECT_ID}-europe-west2-datasets-20251207}
 if gsutil ls -b gs://$BUCKET_NAME >/dev/null 2>&1; then
   echo "YES: gs://$BUCKET_NAME"
@@ -39,4 +41,3 @@ gcloud sql users list --instance="$SQL_INSTANCE" --format='table(name,type)'
 
 echo "== Secrets =="
 gcloud secrets list --format='table(name)' | sed -n '1,200p'
-

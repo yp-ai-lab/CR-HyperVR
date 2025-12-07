@@ -31,6 +31,7 @@ class DB:
     async def fetch_similar(self, query_vec: np.ndarray, top_k: int = 10) -> list[dict[str, Any]]:
         await self.connect()
         assert self._pool is not None
+        # Query movies by cosine distance, return movie and score
         q = """
         SELECT m.movie_id, m.title, m.genres, 1 - (e.embedding <=> $1::vector) AS score
         FROM movie_embeddings e
@@ -46,6 +47,9 @@ class DB:
         return [dict(r) for r in rows]
 
     async def fetch_user_profile_embedding(self, user_id: int, min_rating: float = 4.0) -> np.ndarray | None:
+        """Return an average embedding of movies the user rated >= min_rating.
+        Falls back to None if no vectors exist.
+        """
         await self.connect()
         assert self._pool is not None
         q = """
@@ -64,16 +68,19 @@ class DB:
                 s = val.strip().strip("[]")
                 parts = [p for p in s.split(",") if p.strip() != ""]
                 return np.array([float(p) for p in parts], dtype=np.float32)
+            # assume list-like of floats
             return np.array(list(val), dtype=np.float32)
 
         vecs = [_parse_vec(r["embedding"]) for r in rows]
         mean_vec = np.mean(np.stack(vecs, axis=0), axis=0)
+        # Normalize to unit length for cosine search
         n = np.linalg.norm(mean_vec)
         if n > 0:
             mean_vec = mean_vec / n
         return mean_vec.astype(np.float32)
 
     async def fetch_genre_weights(self, movie_ids: list[int]) -> dict[int, float]:
+        """Sum of genre-edge weights per movie for simple graph boost."""
         if not movie_ids:
             return {}
         await self.connect()
@@ -89,6 +96,10 @@ class DB:
         return {int(r["movie_id"]): float(r["w"]) for r in rows}
 
     async def fetch_neighbors_cowatch(self, movie_ids: list[int], top_k: int = 100) -> dict[int, float]:
+        """Return co‑watch neighbors aggregated across a set of seed movie_ids.
+
+        Uses hyperedges where (src_kind='movie', dst_kind='movie').
+        """
         if not movie_ids:
             return {}
         await self.connect()
@@ -103,6 +114,11 @@ class DB:
         return {int(r["movie_id"]): float(r["w"]) for r in rows}
 
     async def fetch_neighbors_shared_genre(self, movie_ids: list[int], top_k: int = 200) -> dict[int, float]:
+        """Return neighbors via shared genres.
+
+        We derive genre nodes from movie->genre edges and then collect other
+        movies pointing to those genres. Weight is sum of (w_src * w_dst).
+        """
         if not movie_ids:
             return {}
         await self.connect()
@@ -137,4 +153,3 @@ def get_db() -> DB:
     if _db_singleton is None:
         _db_singleton = DB()
     return _db_singleton
-

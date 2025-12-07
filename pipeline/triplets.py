@@ -18,6 +18,7 @@ def _storage_options(path: str | Path) -> dict | None:
 
 def _list_ratings_parts(processed_dir: str) -> list[str]:
     pat = f"{processed_dir}/ratings_enriched-*.parquet"
+    # Try gcsfs glob
     if str(processed_dir).startswith("gs://"):
         try:
             import gcsfs  # type: ignore
@@ -31,6 +32,7 @@ def _list_ratings_parts(processed_dir: str) -> list[str]:
         files = sorted(glob.glob(pat))
         if files:
             return files
+    # Fallback: sequential probe
     return [f"{processed_dir}/ratings_enriched-{i:05d}.parquet" for i in range(0, 200)]
 
 
@@ -40,19 +42,25 @@ def generate_triplets(
     user_sample: int | None = 10_000,
     random_state: int = 42,
 ) -> None:
+    # Avoid Path round-tripping for GCS URIs; Path("gs://...") becomes "gs:/..."
     out_is_gcs = str(out_dir).startswith("gs://")
     if not out_is_gcs:
         Path(out_dir).mkdir(parents=True, exist_ok=True)
 
+    # Load movies metadata (small enough)
     movies_path = f"{processed_dir}/movies_with_descriptions.parquet" if str(processed_dir).startswith("gs://") else Path(processed_dir) / "movies_with_descriptions.parquet"
     movies = pd.read_parquet(movies_path, storage_options=_storage_options(movies_path))
 
+    # Split positives and negatives
+    # Build quick genre map if available
+    # genres may be JSON-like text; keep as raw string match for simplicity
     movie_genres = movies.set_index("movieId")["genres"].to_dict()
     rng = np.random.default_rng(random_state)
-    trip_rows: list[tuple[int, int, int]] = []
+    trip_rows: list[tuple[int, int, int]] = []  # (user_id, pos_movie, neg_movie)
 
     parts = _list_ratings_parts(processed_dir)
     if not parts:
+        # Fallback to single-file
         parts = [f"{processed_dir}/ratings_enriched.parquet"]
 
     for pth in parts:
@@ -87,4 +95,3 @@ def generate_triplets(
 
 if __name__ == "__main__":
     generate_triplets()
-

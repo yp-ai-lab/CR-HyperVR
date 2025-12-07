@@ -5,9 +5,9 @@ from functools import lru_cache
 import os
 import numpy as np
 
-try:
+try:  # optional
     import onnxruntime as ort  # type: ignore
-except Exception:  # pragma: no cover
+except Exception:  # pragma: no cover - optional
     ort = None
 
 from app.core.config import settings
@@ -17,15 +17,18 @@ class _Embedder:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._mode = "st"
-        self._st_model = None
+        self._st_model = None  # lazy import to avoid heavy deps during tests
         self._ort_session = None
         self._prepare()
 
     def _prepare(self) -> None:
+        # Optional: pull fine-tuned model artifacts from GCS if requested
         try:
             self._maybe_pull_model_from_gcs()
         except Exception:
+            # Best-effort; proceed with normal backend selection
             pass
+        # Allow explicit backend override via env or settings
         override = os.getenv("EMBEDDING_BACKEND") or getattr(settings, "embedding_backend", "auto")
         if override == "hash":
             self._mode = "hash"
@@ -39,6 +42,7 @@ class _Embedder:
                     return
                 except Exception:
                     pass
+            # fallback chain: ST → hash
             try:
                 self._ensure_st()
                 self._mode = "st"
@@ -46,6 +50,7 @@ class _Embedder:
             except Exception:
                 self._mode = "hash"
                 return
+        # Prefer ONNX if available (auto)
         onnx_path = f"{settings.model_dir}/model-int8.onnx"
         if ort is not None:
             try:
@@ -54,6 +59,7 @@ class _Embedder:
                 return
             except Exception:
                 pass
+        # Fallback chain: ST → hash
         try:
             self._ensure_st()
             self._mode = "st"
@@ -68,18 +74,23 @@ class _Embedder:
             self._st_model = SentenceTransformer(settings.model_dir if settings.model_dir else settings.base_model_dir)
 
     def _maybe_pull_model_from_gcs(self) -> None:
+        # If a GCS URI is provided and local ONNX not present, pull down.
         gcs_uri = os.getenv("MODEL_GCS_URI") or os.getenv("GCS_MODEL_URI")
         if not gcs_uri or not gcs_uri.startswith("gs://"):
+            # Derive from bucket hint if available
             bucket = os.getenv("GCS_MODELS_BUCKET")
             if bucket and bucket.startswith("gs://"):
                 gcs_uri = f"{bucket.rstrip('/')}/models/movie-minilm-v1/model-int8.onnx"
             else:
                 return
+        # Destination
         model_dir = getattr(settings, "model_dir", "models/movie-minilm-v1") or "models/movie-minilm-v1"
         onnx_path = os.path.join(model_dir, "model-int8.onnx")
+        # Already present → nothing to do
         if os.path.exists(onnx_path):
             return
         os.makedirs(model_dir, exist_ok=True)
+        # Pull file or directory
         import fsspec
 
         fs = fsspec.filesystem("gcs")
@@ -87,6 +98,8 @@ class _Embedder:
             with fs.open(gcs_uri, "rb") as src, open(onnx_path, "wb") as dst:  # type: ignore[attr-defined]
                 dst.write(src.read())
             return
+        # Otherwise, treat as prefix and sync all files
+        # Ensure trailing slash for globbing
         prefix = gcs_uri.rstrip("/") + "/"
         files = [p for p in fs.glob(prefix + "**") if not p.endswith("/")]
         for obj in files:
@@ -115,7 +128,7 @@ class _Embedder:
             if self._mode == "hash":
                 return self._encode_hash(texts)
             if self._mode == "onnx" and self._ort_session is not None:
-                # For now, use ST encode pipeline for consistency; ONNX-only path can be added later.
+                # For simplicity, use ST encode even when ONNX present (pipeline optimizable later)
                 self._ensure_st()
                 vecs = self._st_model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
             else:
@@ -127,4 +140,3 @@ class _Embedder:
 @lru_cache(maxsize=1)
 def get_embedder() -> _Embedder:
     return _Embedder()
-
