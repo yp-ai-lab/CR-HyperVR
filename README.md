@@ -301,12 +301,12 @@ flowchart LR
 ```mermaid
 flowchart TB
   Q[Query embedding]
-  E{{Embed candidates via pgvector}}
-  C{{Co-watch edges}}
-  G{{Shared-genre edges}}
-  N{{Normalize each signal [0..1]}}
-  W{{Weighted sum: w_e*E + w_c*C + w_g*G}}
-  R[Rank + return with sources]
+  E[Embed candidates via pgvector]
+  C[Co-watch edges]
+  G[Shared-genre edges]
+  N[Normalize each signal]
+  W[Weighted sum]
+  R[Rank and return with sources]
 
   Q --> E --> N
   C --> N
