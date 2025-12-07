@@ -151,14 +151,32 @@ curl -s -X POST \
 Fully managed GCP infrastructure with automatic scaling and pay-per-use billing.
 
 ```mermaid
-flowchart LR
-  A[Client / Agent] -->|JSON POST| B((embedding-service))
-  A -->|JSON POST| C((infra-service))
-  B -->|pgvector| D[(Cloud SQL)]
+flowchart TD
+  subgraph Clients
+    A[Client / Agent]
+  end
+
+  subgraph Cloud Run
+    B((embedding-service))
+    C((infra-service))
+  end
+
+  subgraph Storage
+    D[(Cloud SQL)]
+    E[(GCS)]
+  end
+
+  subgraph Jobs
+    F{{Cloud Run Jobs}}
+  end
+
+  A -->|JSON POST| B
+  A -->|JSON POST| C
+  B -->|pgvector| D
   C -->|pgvector + hyperedges| D
-  E[(GCS)] -->|MODEL_GCS_URI| B
-  E -->|Phase 2 outputs| F{{Cloud Run Jobs}}
-  F -->|validate_hyperedges| D
+  E -->|ONNX model| B
+  E -->|datasets| F
+  F -->|write hyperedges| D
 ```
 
 ### Infrastructure Components
@@ -193,6 +211,38 @@ flowchart TD
 ---
 
 ## API Reference
+
+### Embedding Service Flow
+
+```mermaid
+flowchart LR
+  A[POST Request] --> B[embedding-service]
+  B --> C{Endpoint}
+  C -->|/embed/text| D[Tokenize + ONNX inference]
+  C -->|/embed/movie| D
+  C -->|/embed/user| D
+  C -->|/embed/batch| D
+  C -->|/search/similar| E[Embed + pgvector query]
+  C -->|/search/recommend| F[Load profile + pgvector + rerank]
+  D --> G[384-dim vector]
+  E --> H[Ranked movie list]
+  F --> H
+```
+
+### Infra Service Flow
+
+```mermaid
+flowchart LR
+  A[POST /graph/recommend] --> B[infra-service]
+  B --> C[Embed query text]
+  C --> D[pgvector seed candidates]
+  D --> E[Hyperedge expansion]
+  E --> F[Co-watch edges]
+  E --> G[Genre edges]
+  F --> H[Score fusion]
+  G --> H
+  H --> I[Top-K results]
+```
 
 ### Embedding Endpoints
 
