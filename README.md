@@ -2,7 +2,7 @@
 
 **Cloud Run Hypergraph-Vector Recommender** 
 
-— CPU-only FastAPI service using INT8 ONNX MiniLM, pgvector similarity, and hyperedge signals.
+CPU-only FastAPI service using INT8 ONNX MiniLM, pgvector similarity, and hyperedge signals.
 
 ## What It Does
 
@@ -51,17 +51,30 @@ curl -s -X POST \
 ### Full API Examples
 
 <details>
-<summary><strong>Batch embed texts</strong></summary>
+<summary><strong>Search similar movies</strong></summary>
 
 ```bash
 curl -s -X POST \
-  https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/batch \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/search/similar \
   -H 'Content-Type: application/json' \
   -d '{
-        "texts": [
-          "gritty detective thriller set in Boston",
-          "lighthearted family fantasy with magical creatures"
-        ]
+        "text":"grounded space survival drama",
+        "top_k": 10
+      }'
+```
+</details>
+
+<details>
+<summary><strong>Recommend for a user ID</strong></summary>
+
+```bash
+curl -s -X POST \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/search/recommend \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "user_id": 123,
+        "top_k": 10,
+        "exclude_movie_ids": [1,2,3]
       }'
 ```
 </details>
@@ -97,30 +110,17 @@ curl -s -X POST \
 </details>
 
 <details>
-<summary><strong>Search similar movies (pgvector)</strong></summary>
+<summary><strong>Batch embed texts</strong></summary>
 
 ```bash
 curl -s -X POST \
-  https://embedding-service-5pgvctvdpq-nw.a.run.app/search/similar \
+  https://embedding-service-5pgvctvdpq-nw.a.run.app/embed/batch \
   -H 'Content-Type: application/json' \
   -d '{
-        "text":"grounded space survival drama",
-        "top_k": 10
-      }'
-```
-</details>
-
-<details>
-<summary><strong>Recommend for a user ID</strong></summary>
-
-```bash
-curl -s -X POST \
-  https://embedding-service-5pgvctvdpq-nw.a.run.app/search/recommend \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "user_id": 123,
-        "top_k": 10,
-        "exclude_movie_ids": [1,2,3]
+        "texts": [
+          "gritty detective thriller set in Boston",
+          "lighthearted family fantasy with magical creatures"
+        ]
       }'
 ```
 </details>
@@ -152,11 +152,11 @@ Fully managed GCP infrastructure with automatic scaling and pay-per-use billing.
 
 ```mermaid
 flowchart LR
-  A[Client / Agent] -->|JSON POST| B((Cloud Run: embedding-service))
-  A -->|JSON POST| C((Cloud Run: infra-service))
-  B -->|SQL (pgvector)| D[(Cloud SQL Postgres 15)]
-  C -->|SQL (pgvector + hyperedges)| D
-  E[(GCS: datasets/models)] -->|MODEL_GCS_URI| B
+  A[Client / Agent] -->|JSON POST| B((embedding-service))
+  A -->|JSON POST| C((infra-service))
+  B -->|pgvector| D[(Cloud SQL)]
+  C -->|pgvector + hyperedges| D
+  E[(GCS)] -->|MODEL_GCS_URI| B
   E -->|Phase 2 outputs| F{{Cloud Run Jobs}}
   F -->|validate_hyperedges| D
 ```
@@ -241,11 +241,11 @@ make export-openapi
 
 ```mermaid
 flowchart TD
-  A[Phase 2 Outputs\n movies_with_descriptions.parquet\n user_profiles.parquet\n triplets/*.parquet] --> B[train_finetune.py\n ST MiniLM-L6-v2 → movie-minilm-v1]
-  B --> C[onnx_export.py → model.onnx]
-  C --> D[quantize_int8.py → model-int8.onnx]
-  D --> E[(GCS models bucket)]
-  E --> F((Cloud Run \n MODEL_GCS_URI))
+  A[Phase 2 Outputs] --> B[train_finetune.py]
+  B --> C[onnx_export.py]
+  C --> D[quantize_int8.py]
+  D --> E[(GCS)]
+  E --> F((Cloud Run))
 ```
 
 | Phase | Script | Output |
