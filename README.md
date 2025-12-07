@@ -10,9 +10,12 @@
 
 </div>
 
-CR-HyperVR is a lightweight web service that recommends films based on their descriptions and people's past ratings. It creates compact summaries of each film and of a person's tastes, then searches for the closest matches to suggest what to watch next. It also uses simple links between related films (like shared genres or being liked by the same people) and runs in the cloud so it stays quick and reliable.
+CR-HyperVR is a fast, cloud-native recommendation service that learns your taste in films and finds your next favourite by matching descriptions, ratings, and the hidden connections between movies you love.
 
-The system uses a compact text-embedding model that we finetune on CPUs to create stable, low-dimensional representations of films and user preferences, minimising cost and latency while allowing regular updates without specialist hardware. At query time it retrieves likely candidates by comparing these embeddings, then refines the ranking with a hypergraph that captures relations such as co-watching and shared genres so multiple signals inform each suggestion. This combination of CPU-based finetuning and hypergraph reasoning improves robustness with sparse data, eases cold-start problems, and delivers more accurate, consistent results at scale.
+- Uses a compact text-embedding model finetuned on CPUs to create stable, low-dimensional representations of films and user preferences
+- Minimises cost and latency while allowing regular updates without specialist hardware
+- Retrieves likely candidates at query time by comparing embeddings, then refines ranking with a hypergraph that captures relations such as co-watching and shared genres
+- Combines CPU-based finetuning and hypergraph reasoning to improve robustness with sparse data, ease cold-start problems, and deliver more accurate, consistent results at scale
 
 ---
 
